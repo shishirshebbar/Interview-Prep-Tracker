@@ -1,0 +1,517 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TargetRole {
+  SDE_1
+  SWE_1
+  SOFTWARE_ENGINEER_1
+}
+
+enum TopicCategory {
+  DSA
+  SQL
+  CORE_JAVA
+  JAVASCRIPT
+  PYTHON
+  DBMS
+  OPERATING_SYSTEMS
+  COMPUTER_NETWORKS
+  SYSTEM_DESIGN
+  RESUME
+  PROJECTS
+}
+
+enum TopicStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  STRONG_FOUNDATION
+  COMPLETE
+}
+
+enum PriorityLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DifficultyLevel {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum ProblemStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SOLVED
+  REVIEW
+  MASTERED
+}
+
+enum TaskType {
+  DSA
+  CORE_JAVA
+  JAVASCRIPT
+  SQL
+  CS_FUNDAMENTALS
+  RESUME
+  PROJECT
+  REVISION
+  SYSTEM_DESIGN
+}
+
+enum TaskStatus {
+  PLANNED
+  COMPLETED
+  PARTIALLY_COMPLETED
+  SKIPPED
+}
+
+enum PlanSource {
+  RULE_BASED
+  AI_GENERATED
+  RESCHEDULED
+  MANUAL
+}
+
+enum RevisionStatus {
+  PENDING
+  COMPLETED
+  SKIPPED
+  OVERDUE
+}
+
+enum ProjectReadiness {
+  NOT_READY
+  DEVELOPING
+  CONFIDENT
+  READY
+}
+
+enum ResumeSection {
+  SUMMARY
+  EXPERIENCE
+  PROJECT
+  SKILLS
+  EDUCATION
+  ACHIEVEMENT
+}
+
+enum NotificationType {
+  DAILY_EMAIL
+  WEEKLY_EMAIL
+  TEST_EMAIL
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  DISABLED
+}
+
+enum AIInteractionType {
+  STUDY_PLAN
+  EXPLAIN_TOPIC
+  WEAK_AREA_ANALYSIS
+  DAILY_REVIEW
+  PROJECT_ASSIST
+  RESUME_ASSIST
+  RESCHEDULE_PLAN
+}
+
+enum AIInteractionStatus {
+  SUCCESS
+  FAILED
+  BLOCKED
+  VALIDATION_ERROR
+}
+
+enum StudySessionSource {
+  MANUAL
+  TIMER
+  PLAN_TASK
+}
+
+model User {
+  id                 String                  @id @default(cuid())
+  email              String?                 @unique
+  name               String
+  timezone           String                  @default("Asia/Kolkata")
+  targetRole         TargetRole
+  prepStartDate      DateTime
+  prepDeadline       DateTime
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  settings           UserSettings?
+  goals              Goal[]
+  topicProgress      TopicProgress[]
+  problems           Problem[]
+  problemAttempts    ProblemAttempt[]
+  revisions          Revision[]
+  dailyPlans         DailyPlan[]
+  studySessions      StudySession[]
+  projects           Project[]
+  resumeProfile      ResumeProfile?
+  analyticsSnapshots AnalyticsSnapshot[]
+  notifications      Notification[]
+  aiInteractions     AIInteraction[]
+}
+
+model UserSettings {
+  id                        String   @id @default(cuid())
+  userId                    String   @unique
+  weekdayStartTime          String   @default("22:15")
+  weekdayStudyMinutes       Int      @default(90)
+  weekendStudyMinutes       Int      @default(480)
+  timezone                  String   @default("Asia/Kolkata")
+  preferredProblemPlatform  String?  @default("LeetCode")
+  emailAddress              String?
+  emailReminderEnabled      Boolean  @default(false)
+  weeklySummaryEnabled      Boolean  @default(false)
+  aiEnabled                 Boolean  @default(true)
+  openAiModel               String?  @default("gpt-5-mini")
+  reminderCron              String?  @default("15 22 * * *")
+  weeklySummaryCron         String?  @default("0 9 * * 0")
+  revisionIntervalsDays     Int[]    @default([1, 3, 7, 14, 30])
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+  user                      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Goal {
+  id            String        @id @default(cuid())
+  userId        String
+  title         String
+  description   String?
+  priority      PriorityLevel @default(MEDIUM)
+  isCompleted   Boolean       @default(false)
+  targetDate    DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, priority])
+}
+
+model StudyTopic {
+  id                  String          @id @default(cuid())
+  slug                String          @unique
+  name                String
+  description         String?
+  category            TopicCategory
+  parentTopicId       String?
+  difficulty          DifficultyLevel @default(MEDIUM)
+  priority            PriorityLevel   @default(MEDIUM)
+  estimatedHours      Int             @default(0)
+  displayOrder        Int             @default(0)
+  recommendedProblems Int             @default(0)
+  isOptional          Boolean         @default(false)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  parentTopic         StudyTopic?     @relation("TopicHierarchy", fields: [parentTopicId], references: [id], onDelete: SetNull)
+  childTopics         StudyTopic[]    @relation("TopicHierarchy")
+  progressEntries     TopicProgress[]
+  problems            Problem[]
+  dailyTasks          DailyTask[]
+  studySessions       StudySession[]
+
+  @@index([category, displayOrder])
+  @@index([parentTopicId, displayOrder])
+}
+
+model TopicProgress {
+  id                   String      @id @default(cuid())
+  userId               String
+  topicId              String
+  status               TopicStatus @default(NOT_STARTED)
+  completionPercentage Int         @default(0)
+  confidenceScore      Int?
+  weakAreaScore        Int         @default(0)
+  revisionCount        Int         @default(0)
+  notes                String?
+  lastStudiedAt        DateTime?
+  nextRevisionAt       DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  user                 User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic                StudyTopic  @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, topicId])
+  @@index([userId, status])
+  @@index([userId, nextRevisionAt])
+}
+
+model Problem {
+  id                String          @id @default(cuid())
+  userId            String
+  topicId           String
+  title             String
+  platform          String
+  url               String?
+  subtopic          String?
+  difficulty        DifficultyLevel @default(MEDIUM)
+  pattern           String?
+  status            ProblemStatus   @default(NOT_STARTED)
+  attemptsCount     Int             @default(0)
+  solvedAt          DateTime?
+  timeTakenMinutes  Int?
+  notes             String?
+  solutionApproach  String?
+  mistakes          String?
+  revisionDate      DateTime?
+  confidenceScore   Int?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic             StudyTopic      @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  attempts          ProblemAttempt[]
+  revisions         Revision[]
+
+  @@unique([userId, platform, title])
+  @@index([userId, status])
+  @@index([userId, revisionDate])
+  @@index([topicId, difficulty])
+}
+
+model ProblemAttempt {
+  id                 String        @id @default(cuid())
+  userId             String
+  problemId          String
+  statusAfterAttempt ProblemStatus
+  attemptedAt        DateTime      @default(now())
+  durationMinutes    Int?
+  wasSuccessful      Boolean       @default(false)
+  notes              String?
+  solutionApproach   String?
+  mistakes           String?
+  confidenceScore    Int?
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem            Problem       @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@index([userId, attemptedAt])
+  @@index([problemId, attemptedAt])
+}
+
+model Revision {
+  id                   String         @id @default(cuid())
+  userId               String
+  problemId            String
+  dueAt                DateTime
+  completedAt          DateTime?
+  status               RevisionStatus @default(PENDING)
+  confidenceAtSchedule Int
+  intervalDays         Int
+  notes                String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem              Problem        @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@index([userId, dueAt, status])
+  @@index([problemId, dueAt])
+}
+
+model DailyPlan {
+  id                    String       @id @default(cuid())
+  userId                String
+  planDate              DateTime
+  availableMinutes      Int
+  plannedStudyMinutes   Int          @default(0)
+  completedStudyMinutes Int          @default(0)
+  completionRate        Int          @default(0)
+  source                PlanSource   @default(RULE_BASED)
+  summary               String?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks                 DailyTask[]
+
+  @@unique([userId, planDate])
+  @@index([userId, planDate])
+}
+
+model DailyTask {
+  id                 String        @id @default(cuid())
+  dailyPlanId        String
+  topicId            String?
+  projectId          String?
+  title              String
+  description        String?
+  taskType           TaskType
+  status             TaskStatus    @default(PLANNED)
+  priority           PriorityLevel @default(MEDIUM)
+  orderIndex         Int           @default(0)
+  plannedMinutes     Int
+  actualMinutes      Int           @default(0)
+  startMinuteOffset  Int?
+  completionNotes    String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  dailyPlan          DailyPlan     @relation(fields: [dailyPlanId], references: [id], onDelete: Cascade)
+  topic              StudyTopic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  project            Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  studySessions      StudySession[]
+
+  @@index([dailyPlanId, orderIndex])
+  @@index([topicId, status])
+}
+
+model StudySession {
+  id               String             @id @default(cuid())
+  userId           String
+  topicId          String?
+  projectId        String?
+  dailyTaskId      String?
+  startedAt        DateTime
+  endedAt          DateTime?
+  durationMinutes  Int?
+  source           StudySessionSource @default(MANUAL)
+  summary          String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic            StudyTopic?        @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  project          Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  dailyTask        DailyTask?         @relation(fields: [dailyTaskId], references: [id], onDelete: SetNull)
+
+  @@index([userId, startedAt])
+  @@index([topicId, startedAt])
+}
+
+model Project {
+  id                  String           @id @default(cuid())
+  userId              String
+  name                String
+  problemStatement    String?
+  techStack           String[]
+  architecture        String?
+  frontend            String?
+  backend             String?
+  database            String?
+  apis                String?
+  authentication      String?
+  deployment          String?
+  challenges          String?
+  optimizations       String?
+  scalability         String?
+  tradeoffs           String?
+  futureImprovements  String?
+  personalContribution String?
+  readiness           ProjectReadiness @default(DEVELOPING)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dailyTasks          DailyTask[]
+  studySessions       StudySession[]
+
+  @@unique([userId, name])
+  @@index([userId, readiness])
+}
+
+model ResumeProfile {
+  id                   String       @id @default(cuid())
+  userId               String       @unique
+  headline             String?
+  tellMeAboutYourself  String?
+  resumeWalkthrough    String?
+  behavioralNotes      String?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  user                 User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items                ResumeItem[]
+}
+
+model ResumeItem {
+  id              String        @id @default(cuid())
+  resumeProfileId String
+  section         ResumeSection
+  title           String
+  subtitle        String?
+  bulletPoints    String[]
+  displayOrder    Int           @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  resumeProfile   ResumeProfile @relation(fields: [resumeProfileId], references: [id], onDelete: Cascade)
+
+  @@index([resumeProfileId, section, displayOrder])
+}
+
+model AnalyticsSnapshot {
+  id                 String   @id @default(cuid())
+  userId             String
+  snapshotDate       DateTime
+  studyMinutes       Int      @default(0)
+  problemsSolved     Int      @default(0)
+  problemsAttempted  Int      @default(0)
+  revisionCompleted  Int      @default(0)
+  planCompletionRate Int      @default(0)
+  streak             Int      @default(0)
+  missedDay          Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, snapshotDate])
+  @@index([userId, snapshotDate])
+}
+
+model Notification {
+  id            String             @id @default(cuid())
+  userId        String
+  type          NotificationType
+  status        NotificationStatus @default(PENDING)
+  subject       String
+  scheduledFor  DateTime
+  sentAt        DateTime?
+  retryCount    Int                @default(0)
+  payload       Json?
+  errorMessage  String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailLogs     EmailLog[]
+
+  @@index([userId, scheduledFor, status])
+}
+
+model EmailLog {
+  id             String             @id @default(cuid())
+  notificationId String
+  recipient      String
+  provider       String?
+  status         NotificationStatus @default(PENDING)
+  subject        String
+  attemptCount   Int                @default(0)
+  responseId     String?
+  errorMessage   String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  notification   Notification       @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId, status])
+}
+
+model AIInteraction {
+  id              String              @id @default(cuid())
+  userId          String
+  type            AIInteractionType
+  status          AIInteractionStatus @default(SUCCESS)
+  model           String
+  promptVersion   String
+  inputSummary    Json?
+  responseSummary Json?
+  errorMessage    String?
+  createdAt       DateTime            @default(now())
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, createdAt])
+}
+

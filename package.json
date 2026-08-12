@@ -1,0 +1,26 @@
+{
+  "name": "learning-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev:web": "npm run dev -w @tracker/web",
+    "dev:api": "npm run dev -w @tracker/api",
+    "build": "npm run build -w @tracker/shared && npm run build -w @tracker/db && npm run build -w @tracker/api && npm run build -w @tracker/web",
+    "db:generate": "npm run db:generate -w @tracker/db",
+    "db:seed": "npm run db:seed -w @tracker/db",
+    "db:validate": "npm run db:validate -w @tracker/db",
+    "lint": "biome check .",
+    "test": "npm run test -w @tracker/shared && npm run test -w @tracker/db && npm run test -w @tracker/api && npm run test -w @tracker/web",
+    "typecheck": "npm run typecheck -w @tracker/shared && npm run typecheck -w @tracker/db && npm run typecheck -w @tracker/api && npm run typecheck -w @tracker/web"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/react": "^16.3.0",
+    "jsdom": "^26.1.0",
+    "prisma": "^6.14.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

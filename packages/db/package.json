@@ -1,0 +1,32 @@
+{
+  "name": "@tracker/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "prisma generate --schema prisma/schema.prisma && tsc -p tsconfig.json",
+    "db:generate": "prisma generate --schema prisma/schema.prisma",
+    "db:seed": "tsx src/seed.ts",
+    "db:validate": "prisma validate --schema prisma/schema.prisma",
+    "test": "prisma generate --schema prisma/schema.prisma && vitest run",
+    "typecheck": "prisma generate --schema prisma/schema.prisma && tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5"
+  },
+  "prisma": {
+    "seed": "tsx src/seed.ts"
+  }
+}

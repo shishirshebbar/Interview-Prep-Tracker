@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { dailyPlanSeed, problemSeed, topicSeed } from "../src/seed-data.js";
+import {
+  dailyPlanSeed,
+  problemSeed,
+  seedDates,
+  topicSeed,
+} from "../src/seed-data.js";
 
 describe("db seed data", () => {
   it("keeps DSA as the first top-level roadmap area", () => {
@@ -17,5 +22,15 @@ describe("db seed data", () => {
     expect(dailyPlanSeed.tasks).toHaveLength(5);
     expect(dailyPlanSeed.tasks[0]?.actualMinutes).toBe(40);
     expect(dailyPlanSeed.tasks[1]?.status).toBe("SKIPPED");
+  });
+
+  it("seeds a fresh one-month preparation window", () => {
+    const durationDays =
+      (seedDates.prepDeadline.getTime() - seedDates.prepStart.getTime()) /
+      (24 * 60 * 60 * 1000);
+
+    expect(durationDays).toBeGreaterThanOrEqual(30);
+    expect(durationDays).toBeLessThan(31);
+    expect(dailyPlanSeed.planDate).toEqual(seedDates.today);
   });
 });

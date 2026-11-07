@@ -1,86 +1,53 @@
-# Architecture Notes
+# Architecture
 
-## Why This Stack
+## Current stack
 
-The workspace started empty, so the stack was chosen to satisfy these constraints:
+The project is an npm-workspace TypeScript monorepo. The frontend is React/Vite, the backend is Fastify with Zod request validation, domain helpers are in `packages/shared`, and PostgreSQL persistence is provided through Prisma in `packages/db`.
 
-- fast to iterate locally
-- strong TypeScript support across client and server
-- straightforward future integration with PostgreSQL, OpenAI, and SMTP
-- enough structure for a serious portfolio project without forcing an overengineered enterprise setup on day one
+```text
+apps/web (React) -> /api REST (Fastify) -> TrackerRepository -> Prisma -> PostgreSQL
+                                       -> @tracker/shared planning/revision logic
+```
 
-## Monorepo Layout
+`TrackerRepository` is the persistence boundary used by API routes. The production implementation in `apps/api/src/lib/repository.ts` uses Prisma; API tests inject an in-memory implementation. This keeps domain-route tests independent of a running database.
 
-### `apps/web`
+## Implemented product behavior
 
-Responsibilities:
+- The planner builds a daily schedule from the user's weekday/weekend availability, topic progress, open problem list, and due revisions.
+- DSA receives the largest allocation. Completed topics are excluded from topic selection; critical/high-priority unfinished areas are chosen first.
+- Study blocks fit within available minutes and are split into at-most-60-minute sessions.
+- A new plan may carry forward one unfinished task from the most recent plan within seven days. The carry-over is capped at ten minutes; the remaining old tasks do not accumulate.
+- Task outcomes distinguish `COMPLETED`, `PARTIALLY_COMPLETED`, and `SKIPPED`; actual study time and completion metrics are persisted.
+- Problem-attempt confidence selects a configured revision interval. Recording a new confidence score supersedes older pending revisions for that problem.
+- Calendar-day calculation uses `TIMEZONE` for the default single-user profile. Plan dates are stored as UTC calendar-day keys, rather than server-local timestamps.
 
-- dashboard experience
-- roadmap and plan views
-- problem tracker UI
-- analytics and settings UI
-- future interview and mock assessment flows
+The planner is deterministic. It does not claim to learn completion rates, detect weakness from long-term history, or automatically change the roadmap based on interviews. Those require additional product logic and persisted measurements.
 
-### `apps/api`
+## Data model
 
-Responsibilities:
+The schema separates:
 
-- study planning and rescheduling logic
-- validation and business rules
-- AI orchestration
-- email orchestration
-- persistence-facing application services
-- future auth and rate limiting
+- identity and preferences: `User`, `UserSettings`, `Goal`
+- roadmap: `StudyTopic`, `TopicProgress`
+- practice: `Problem`, `ProblemAttempt`, `Revision`
+- planning: `DailyPlan`, `DailyTask`, `StudySession`
+- interview material: `Project`, `ResumeProfile`, `ResumeItem`
+- future integrations/metrics: `AnalyticsSnapshot`, `Notification`, `EmailLog`, `AIInteraction`
 
-### `packages/shared`
+The initial PostgreSQL migration is maintained alongside `packages/db/prisma/schema.prisma`. Seed dates are relative to the day the seed command runs. Seeding deletes existing tracker data and must only be used with a disposable database.
 
-Responsibilities:
+## API conventions
 
-- shared TypeScript domain types
-- topic priority definitions
-- initial planning defaults
-- seedable study metadata
+- REST routes return JSON and use `/api` prefixes.
+- Zod validates query parameters and request bodies before repository calls.
+- The personal MVP selects the earliest-created user; it is not suitable for untrusted multi-user access without authentication and authorization.
+- Database/provider errors should propagate to Fastify's error handler rather than being converted to success-shaped responses.
 
-## Planned Data Model
+Current route groups cover health/meta, dashboard, topics, problems/attempts, daily plans/tasks, and due revisions. AI, email, project/resume editing, analytics, mock assessments, and interview-mode routes remain future work; schema fields and environment placeholders are not integrations.
 
-The normalized schema will be built around these aggregates:
+## Security and deployment boundaries
 
-- `User`, `UserSettings`, `Goal`
-- `StudyTopic`, `SubTopic`, `TopicProgress`
-- `Problem`, `ProblemAttempt`, `Revision`
-- `DailyPlan`, `DailyTask`, `StudySession`
-- `Project`, `ResumeProfile`, `ResumeItem`
-- `Notification`, `EmailLog`, `AIInteraction`
-
-## API Direction
-
-The API will stay REST-oriented for now:
-
-- simple frontend consumption
-- easy testability
-- clean mapping to scheduled jobs and future mobile clients
-
-Example route groups:
-
-- `/api/dashboard`
-- `/api/topics`
-- `/api/problems`
-- `/api/plans`
-- `/api/revisions`
-- `/api/projects`
-- `/api/interviews`
-- `/api/analytics`
-- `/api/ai`
-- `/api/email`
-
-## Adaptive Planning Principles
-
-The most important non-functional rule is product behavior:
-
-- missed work rolls forward intelligently
-- the system does not shame the user
-- DSA remains the highest-priority bucket
-- remaining time and dependency order matter
-- weak areas get surfaced without collapsing the whole schedule
-
-Phase 5 will formalize this as deterministic planning heuristics first, then AI-assisted recommendation overlays later.
+- Provider keys must remain in server-side environment variables and must never use `VITE_` names.
+- The current API has no authentication and permissive development CORS. Restrict CORS and add authentication/authorization before exposing it publicly.
+- There is no background worker yet. Email cron environment variables are placeholders and are not consumed.
+- Production deployment requires PostgreSQL migrations via `prisma migrate deploy` before serving API traffic.

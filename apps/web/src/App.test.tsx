@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import "./test/setup";
@@ -131,9 +131,13 @@ describe("App", () => {
     expect(
       await screen.findByText(/what do i study today/i),
     ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Problems" }));
     expect(
       await screen.findByRole("button", { name: /not started/i }),
     ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Revision" }));
     expect(await screen.findByText(/Nth Highest Salary/i)).toBeInTheDocument();
   });
 });

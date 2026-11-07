@@ -8,6 +8,7 @@
     "dev:api": "npm run dev -w @tracker/api",
     "build": "npm run build -w @tracker/shared && npm run build -w @tracker/db && npm run build -w @tracker/api && npm run build -w @tracker/web",
     "db:generate": "npm run db:generate -w @tracker/db",
+    "db:migrate": "npm run db:migrate -w @tracker/db",
     "db:seed": "npm run db:seed -w @tracker/db",
     "db:validate": "npm run db:validate -w @tracker/db",
     "lint": "biome check .",

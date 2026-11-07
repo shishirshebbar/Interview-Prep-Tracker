@@ -16,14 +16,39 @@ import {
   TopicStatus,
 } from "@prisma/client";
 
+function seedDate(offsetDays: number, time = "00:00:00.000") {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const value = (type: string) =>
+    Number(parts.find((part) => part.type === type)?.value);
+  const calendarDate = new Date(
+    Date.UTC(value("year"), value("month") - 1, value("day")),
+  );
+  calendarDate.setUTCDate(calendarDate.getUTCDate() + offsetDays);
+  const date = calendarDate.toISOString().slice(0, 10);
+  return new Date(`${date}T${time}+05:30`);
+}
+
 export const seedDates = {
-  prepStart: new Date("2026-08-11T00:00:00+05:30"),
-  prepDeadline: new Date("2026-09-11T23:59:59+05:30"),
-  today: new Date("2026-08-11T00:00:00+05:30"),
-  tomorrow: new Date("2026-08-12T00:00:00+05:30"),
-  yesterday: new Date("2026-08-10T00:00:00+05:30"),
-  threeDaysAgo: new Date("2026-08-08T00:00:00+05:30"),
-  nextWeek: new Date("2026-08-18T00:00:00+05:30"),
+  prepStart: seedDate(0),
+  prepDeadline: seedDate(30, "23:59:59.999"),
+  today: seedDate(0),
+  tomorrow: seedDate(1),
+  yesterday: seedDate(-1),
+  threeDaysAgo: seedDate(-3),
+  fiveDaysAgo: seedDate(-5),
+  sevenDaysAgo: seedDate(-7),
+  nineDaysAgo: seedDate(-9),
+  thirteenDaysAgo: seedDate(-13),
+  fifteenDaysAgo: seedDate(-15),
+  nextWeek: seedDate(7),
+  nextMonth: seedDate(30),
+  fiveWeeksLater: seedDate(35),
+  sixWeeksLater: seedDate(42),
 };
 
 export const defaultUserSeed = {
@@ -451,7 +476,7 @@ export const problemSeed = [
     solvedAt: seedDates.threeDaysAgo,
     timeTakenMinutes: 12,
     confidenceScore: 5,
-    revisionDate: new Date("2026-09-10T00:00:00+05:30"),
+    revisionDate: seedDates.nextMonth,
   },
   {
     title: "Largest Odd Number in String",
@@ -522,7 +547,7 @@ export const problemSeed = [
     pattern: "Inner join",
     status: ProblemStatus.SOLVED,
     attemptsCount: 1,
-    solvedAt: new Date("2026-08-02T00:00:00+05:30"),
+    solvedAt: seedDates.nineDaysAgo,
     timeTakenMinutes: 11,
     confidenceScore: 4,
     revisionDate: seedDates.nextWeek,
@@ -537,7 +562,7 @@ export const problemSeed = [
     pattern: "Ranking",
     status: ProblemStatus.SOLVED,
     attemptsCount: 2,
-    solvedAt: new Date("2026-08-04T00:00:00+05:30"),
+    solvedAt: seedDates.sevenDaysAgo,
     timeTakenMinutes: 26,
     confidenceScore: 3,
     revisionDate: seedDates.today,
@@ -552,7 +577,7 @@ export const problemSeed = [
     pattern: "DENSE_RANK",
     status: ProblemStatus.SOLVED,
     attemptsCount: 1,
-    solvedAt: new Date("2026-08-06T00:00:00+05:30"),
+    solvedAt: seedDates.fiveDaysAgo,
     timeTakenMinutes: 20,
     confidenceScore: 4,
     revisionDate: seedDates.tomorrow,
@@ -577,10 +602,10 @@ export const problemSeed = [
     pattern: "Stack simulation",
     status: ProblemStatus.MASTERED,
     attemptsCount: 1,
-    solvedAt: new Date("2026-07-27T00:00:00+05:30"),
+    solvedAt: seedDates.fifteenDaysAgo,
     timeTakenMinutes: 15,
     confidenceScore: 5,
-    revisionDate: new Date("2026-09-15T00:00:00+05:30"),
+    revisionDate: seedDates.fiveWeeksLater,
   },
   {
     title: "Next Greater Element",
@@ -591,10 +616,10 @@ export const problemSeed = [
     pattern: "Monotonic stack",
     status: ProblemStatus.MASTERED,
     attemptsCount: 2,
-    solvedAt: new Date("2026-07-29T00:00:00+05:30"),
+    solvedAt: seedDates.thirteenDaysAgo,
     timeTakenMinutes: 25,
     confidenceScore: 5,
-    revisionDate: new Date("2026-09-18T00:00:00+05:30"),
+    revisionDate: seedDates.sixWeeksLater,
   },
 ];
 
@@ -685,7 +710,7 @@ export const notificationSeed = [
     type: NotificationType.DAILY_EMAIL,
     status: NotificationStatus.PENDING,
     subject: "SDE-1 Preparation - Today's Plan",
-    scheduledFor: new Date("2026-08-11T22:15:00+05:30"),
+    scheduledFor: seedDate(0, "22:15:00.000"),
     payload: {
       timezone: "Asia/Kolkata",
       theme: "adaptive-daily-plan",

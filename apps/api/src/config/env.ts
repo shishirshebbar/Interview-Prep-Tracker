@@ -14,7 +14,6 @@ const envSchema = z.object({
   DEFAULT_WEEKDAY_STUDY_MINUTES: z.coerce.number().default(90),
   DEFAULT_WEEKEND_STUDY_MINUTES: z.coerce.number().default(480),
   DEFAULT_TARGET_ROLE: z.string().default("SDE-1"),
-  DEFAULT_PREP_DEADLINE: z.string().default("2026-09-11"),
 });
 
 export const env = envSchema.parse(process.env);

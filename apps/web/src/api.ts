@@ -155,10 +155,37 @@ export function updateProblemStatus(problemId: string, status: string) {
   );
 }
 
-export function updateDailyTaskStatus(taskId: string, status: string) {
+export function updateDailyTaskStatus(
+  taskId: string,
+  status: string,
+  actualMinutes?: number,
+) {
   return sendJson<DailyPlanResponse["tasks"][number]>(
     `/api/daily-plan/tasks/${taskId}`,
     "PATCH",
-    { status },
+    { status, actualMinutes },
+  );
+}
+
+export function recordProblemAttempt(
+  problemId: string,
+  input: {
+    statusAfterAttempt: "SOLVED";
+    wasSuccessful: true;
+    confidenceScore: number;
+  },
+) {
+  return sendJson<ProblemResponse>(
+    `/api/problems/${problemId}/attempt`,
+    "POST",
+    input,
+  );
+}
+
+export function completeRevision(revisionId: string) {
+  return sendJson<{ id: string; status: string }>(
+    `/api/revisions/${revisionId}/complete`,
+    "PATCH",
+    {},
   );
 }

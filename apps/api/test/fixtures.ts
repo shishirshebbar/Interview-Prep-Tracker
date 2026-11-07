@@ -203,6 +203,25 @@ export function createTestRepository(): TrackerRepository {
       return date === "2026-08-11" ? dailyPlan : null;
     },
 
+    async generateDailyPlan(date: string) {
+      if (date === dailyPlan.planDate) {
+        return dailyPlan;
+      }
+      return {
+        ...structuredClone(dailyPlan),
+        id: `plan-${date}`,
+        planDate: date,
+        completedStudyMinutes: 0,
+        completionRate: 0,
+        tasks: dailyPlan.tasks.map((task) => ({
+          ...task,
+          id: `${date}-${task.id}`,
+          status: TaskStatus.PLANNED,
+          actualMinutes: 0,
+        })),
+      };
+    },
+
     async updateDailyTaskStatus(taskId: string, input: DailyTaskUpdateInput) {
       const task = dailyPlan.tasks.find((item) => item.id === taskId);
 
@@ -212,12 +231,20 @@ export function createTestRepository(): TrackerRepository {
 
       task.status = input.status;
       task.actualMinutes =
-        input.status === "COMPLETED" ? task.plannedMinutes : 0;
+        input.status === TaskStatus.COMPLETED
+          ? (input.actualMinutes ?? task.plannedMinutes)
+          : input.status === TaskStatus.PARTIALLY_COMPLETED
+            ? (input.actualMinutes ?? Math.floor(task.plannedMinutes / 2))
+            : 0;
       return task;
     },
 
     async getDueRevisions(date: string) {
       return date >= "2026-08-11" ? revisions : [];
+    },
+
+    async completeRevision(revisionId: string) {
+      return revisions.some((revision) => revision.id === revisionId);
     },
   };
 }

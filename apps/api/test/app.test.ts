@@ -128,6 +128,23 @@ describe("api", () => {
     });
   });
 
+  it("generates a plan for a date without one", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/daily-plan/generate",
+      payload: {
+        date: "2026-08-12",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      planDate: "2026-08-12",
+      availableMinutes: 90,
+      plannedStudyMinutes: 90,
+    });
+  });
+
   it("updates a daily task status", async () => {
     const response = await app.inject({
       method: "PATCH",
@@ -136,12 +153,29 @@ describe("api", () => {
         status: "COMPLETED",
       },
     });
-
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       id: "task-1",
       status: "COMPLETED",
       actualMinutes: 40,
+    });
+  });
+
+  it("records partial progress on a daily task", async () => {
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/api/daily-plan/tasks/task-1",
+      payload: {
+        status: "PARTIALLY_COMPLETED",
+        actualMinutes: 12,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      id: "task-1",
+      status: "PARTIALLY_COMPLETED",
+      actualMinutes: 12,
     });
   });
 
@@ -161,5 +195,18 @@ describe("api", () => {
         }),
       ]),
     );
+  });
+
+  it("completes a due revision", async () => {
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/api/revisions/revision-1/complete",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      id: "revision-1",
+      status: "COMPLETED",
+    });
   });
 });

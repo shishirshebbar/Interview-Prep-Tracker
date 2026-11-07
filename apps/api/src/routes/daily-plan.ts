@@ -1,14 +1,17 @@
 import { TaskStatus } from "@prisma/client";
+import { currentDateInTimeZone } from "@tracker/shared";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { env } from "../config/env.js";
 import type { TrackerRepository } from "../lib/repository.js";
 
 const dailyPlanQuerySchema = z.object({
-  date: z.string().date().default("2026-08-11"),
+  date: z.string().date().optional(),
 });
 
 const updateDailyTaskBodySchema = z.object({
   status: z.nativeEnum(TaskStatus),
+  actualMinutes: z.number().int().min(0).optional(),
 });
 
 export async function registerDailyPlanRoutes(
@@ -17,15 +20,18 @@ export async function registerDailyPlanRoutes(
 ) {
   app.get("/api/daily-plan", async (request, reply) => {
     const query = dailyPlanQuerySchema.parse(request.query);
-    const plan = await repository.getDailyPlan(query.date);
+    const date = query.date ?? currentDateInTimeZone(env.TIMEZONE);
+    return (
+      (await repository.getDailyPlan(date)) ??
+      (await repository.generateDailyPlan(date))
+    );
+  });
 
-    if (!plan) {
-      return reply.code(404).send({
-        message: "Daily plan not found",
-      });
-    }
-
-    return plan;
+  app.post("/api/daily-plan/generate", async (request) => {
+    const body = dailyPlanQuerySchema.parse(request.body ?? {});
+    return repository.generateDailyPlan(
+      body.date ?? currentDateInTimeZone(env.TIMEZONE),
+    );
   });
 
   app.patch("/api/daily-plan/tasks/:id", async (request, reply) => {

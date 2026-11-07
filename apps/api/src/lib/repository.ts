@@ -2,15 +2,17 @@ import {
   type DifficultyLevel,
   ProblemStatus,
   RevisionStatus,
+  TaskStatus,
   TopicStatus,
 } from "@prisma/client";
-import type {
-  PlanSource,
-  PriorityLevel,
-  TaskStatus,
-  TopicCategory,
-} from "@prisma/client";
+import type { PlanSource, PriorityLevel, TopicCategory } from "@prisma/client";
 import { prisma } from "@tracker/db";
+import {
+  currentDateInTimeZone,
+  generateDailyPlan,
+  revisionIntervalDays,
+} from "@tracker/shared";
+import { env } from "../config/env.js";
 
 export interface DashboardData {
   user: {
@@ -114,6 +116,7 @@ export interface DailyPlanData {
 
 export interface DailyTaskUpdateInput {
   status: TaskStatus;
+  actualMinutes?: number;
 }
 
 export interface DueRevisionItem {
@@ -143,15 +146,24 @@ export interface TrackerRepository {
     input: ProblemAttemptInput,
   ): Promise<ProblemListItem | null>;
   getDailyPlan(date: string): Promise<DailyPlanData | null>;
+  generateDailyPlan(date: string): Promise<DailyPlanData>;
   updateDailyTaskStatus(
     taskId: string,
     input: DailyTaskUpdateInput,
   ): Promise<DailyPlanData["tasks"][number] | null>;
   getDueRevisions(date: string): Promise<DueRevisionItem[]>;
+  completeRevision(revisionId: string): Promise<boolean>;
 }
 
 function toIsoDate(value: Date) {
   return value.toISOString().slice(0, 10);
+}
+
+function dateBounds(date: string) {
+  return {
+    gte: new Date(`${date}T00:00:00.000Z`),
+    lte: new Date(`${date}T23:59:59.999Z`),
+  };
 }
 
 async function getDefaultUserId() {
@@ -174,7 +186,7 @@ async function getDefaultUserId() {
 export const prismaRepository: TrackerRepository = {
   async getDashboard() {
     const userId = await getDefaultUserId();
-    const today = "2026-08-11";
+    const today = currentDateInTimeZone(env.TIMEZONE);
 
     const [user, topicProgress, revisions, analytics, todaysPlan] =
       await Promise.all([
@@ -201,9 +213,7 @@ export const prismaRepository: TrackerRepository = {
           where: {
             userId,
             status: RevisionStatus.PENDING,
-            dueAt: {
-              lte: new Date(`${today}T23:59:59.999Z`),
-            },
+            dueAt: { lte: dateBounds(today).lte },
           },
         }),
         prisma.analyticsSnapshot.findMany({
@@ -216,10 +226,7 @@ export const prismaRepository: TrackerRepository = {
         prisma.dailyPlan.findFirst({
           where: {
             userId,
-            planDate: {
-              gte: new Date(`${today}T00:00:00.000Z`),
-              lte: new Date(`${today}T23:59:59.999Z`),
-            },
+            planDate: dateBounds(today),
           },
           include: {
             tasks: {
@@ -460,8 +467,8 @@ export const prismaRepository: TrackerRepository = {
       return null;
     }
 
-    await prisma.$transaction([
-      prisma.problemAttempt.create({
+    await prisma.$transaction(async (transaction) => {
+      await transaction.problemAttempt.create({
         data: {
           userId,
           problemId,
@@ -473,8 +480,8 @@ export const prismaRepository: TrackerRepository = {
           solutionApproach: input.solutionApproach,
           mistakes: input.mistakes,
         },
-      }),
-      prisma.problem.update({
+      });
+      await transaction.problem.update({
         where: { id: problemId },
         data: {
           status: input.statusAfterAttempt,
@@ -488,8 +495,45 @@ export const prismaRepository: TrackerRepository = {
           mistakes: input.mistakes ?? existing.mistakes,
           solvedAt: input.wasSuccessful ? new Date() : existing.solvedAt,
         },
-      }),
-    ]);
+      });
+
+      if (input.confidenceScore !== undefined) {
+        const settings = await transaction.userSettings.findUnique({
+          where: { userId },
+          select: { revisionIntervalsDays: true, timezone: true },
+        });
+        const intervalDays = revisionIntervalDays(
+          input.confidenceScore,
+          settings?.revisionIntervalsDays,
+        );
+        const dueAt = new Date(
+          `${currentDateInTimeZone(settings?.timezone ?? env.TIMEZONE)}T00:00:00.000Z`,
+        );
+        dueAt.setUTCDate(dueAt.getUTCDate() + intervalDays);
+
+        await transaction.revision.updateMany({
+          where: {
+            userId,
+            problemId,
+            status: RevisionStatus.PENDING,
+          },
+          data: { status: RevisionStatus.SKIPPED },
+        });
+        await transaction.revision.create({
+          data: {
+            userId,
+            problemId,
+            dueAt,
+            confidenceAtSchedule: input.confidenceScore,
+            intervalDays,
+          },
+        });
+        await transaction.problem.update({
+          where: { id: problemId },
+          data: { revisionDate: dueAt },
+        });
+      }
+    });
 
     const updated = await prisma.problem.findUniqueOrThrow({
       where: { id: problemId },
@@ -524,10 +568,7 @@ export const prismaRepository: TrackerRepository = {
     const plan = await prisma.dailyPlan.findFirst({
       where: {
         userId,
-       planDate: {
-  gte: new Date(`${date}T00:00:00+05:30`),
-  lte: new Date(`${date}T23:59:59.999+05:30`),
-},
+        planDate: dateBounds(date),
       },
       include: {
         tasks: {
@@ -571,15 +612,201 @@ export const prismaRepository: TrackerRepository = {
     };
   },
 
+  async generateDailyPlan(date) {
+    const userId = await getDefaultUserId();
+    const bounds = dateBounds(date);
+    const existing = await prisma.dailyPlan.findFirst({
+      where: { userId, planDate: bounds },
+      include: {
+        tasks: {
+          include: { topic: { select: { name: true } } },
+          orderBy: { orderIndex: "asc" },
+        },
+      },
+    });
+
+    if (existing) {
+      return {
+        id: existing.id,
+        planDate: toIsoDate(existing.planDate),
+        availableMinutes: existing.availableMinutes,
+        plannedStudyMinutes: existing.plannedStudyMinutes,
+        completedStudyMinutes: existing.completedStudyMinutes,
+        completionRate: existing.completionRate,
+        source: existing.source,
+        summary: existing.summary,
+        tasks: existing.tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          status: task.status,
+          priority: task.priority,
+          plannedMinutes: task.plannedMinutes,
+          actualMinutes: task.actualMinutes,
+          topic: task.topic?.name ?? null,
+        })),
+      };
+    }
+
+    const [settings, topics, problems, revisions, previousPlan] =
+      await Promise.all([
+        prisma.userSettings.findUnique({
+          where: { userId },
+          select: {
+            weekdayStudyMinutes: true,
+            weekendStudyMinutes: true,
+          },
+        }),
+        prisma.studyTopic.findMany({
+          orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
+          include: {
+            progressEntries: { where: { userId }, take: 1 },
+          },
+        }),
+        prisma.problem.findMany({
+          where: { userId },
+          select: {
+            title: true,
+            status: true,
+            topic: { select: { slug: true } },
+          },
+        }),
+        prisma.revision.findMany({
+          where: {
+            userId,
+            status: RevisionStatus.PENDING,
+            dueAt: { lte: bounds.lte },
+          },
+          include: { problem: { select: { title: true } } },
+          orderBy: { dueAt: "asc" },
+          take: 10,
+        }),
+        prisma.dailyPlan.findFirst({
+          where: {
+            userId,
+            planDate: {
+              gte: new Date(
+                new Date(`${date}T00:00:00.000Z`).getTime() -
+                  7 * 24 * 60 * 60 * 1000,
+              ),
+              lt: new Date(`${date}T00:00:00.000Z`),
+            },
+          },
+          include: {
+            tasks: {
+              where: { status: { not: TaskStatus.COMPLETED } },
+              orderBy: [{ priority: "desc" }, { orderIndex: "asc" }],
+              take: 1,
+              include: { topic: { select: { slug: true } } },
+            },
+          },
+          orderBy: { planDate: "desc" },
+        }),
+      ]);
+
+    const localDate = new Date(`${date}T12:00:00.000Z`);
+    const weekday = localDate.getUTCDay();
+    const availableMinutes =
+      weekday === 0 || weekday === 6
+        ? (settings?.weekendStudyMinutes ?? env.DEFAULT_WEEKEND_STUDY_MINUTES)
+        : (settings?.weekdayStudyMinutes ?? env.DEFAULT_WEEKDAY_STUDY_MINUTES);
+    const carryOver = previousPlan?.tasks[0];
+    const tasks = generateDailyPlan({
+      availableMinutes,
+      topics: topics.map((topic) => ({
+        slug: topic.slug,
+        name: topic.name,
+        category: topic.category,
+        parentTopicId: topic.parentTopicId,
+        priority: topic.priority,
+        completionPercentage:
+          topic.progressEntries[0]?.completionPercentage ?? 0,
+        notes: topic.progressEntries[0]?.notes ?? null,
+      })),
+      problems: problems.map((problem) => ({
+        title: problem.title,
+        topicSlug: problem.topic.slug,
+        status: problem.status,
+      })),
+      dueRevisions: revisions.map((revision) => revision.problem.title),
+      carryOver: carryOver
+        ? [
+            {
+              title: carryOver.title,
+              description: carryOver.description,
+              taskType: carryOver.taskType,
+              priority: carryOver.priority,
+              plannedMinutes: carryOver.plannedMinutes,
+              topicSlug: carryOver.topic?.slug ?? null,
+            },
+          ]
+        : [],
+    });
+
+    const plan = await prisma.dailyPlan.create({
+      data: {
+        userId,
+        planDate: new Date(`${date}T00:00:00.000Z`),
+        availableMinutes,
+        plannedStudyMinutes: tasks.reduce(
+          (total, task) => total + task.plannedMinutes,
+          0,
+        ),
+        source: carryOver ? "RESCHEDULED" : "RULE_BASED",
+        summary: carryOver
+          ? "One unfinished task was carried forward into a realistic plan; missed work is not stacked."
+          : `A realistic ${availableMinutes}-minute plan, weighted toward DSA and your highest-priority unfinished topics.`,
+        tasks: {
+          create: tasks.map((task, index) => ({
+            topicId: task.topicSlug
+              ? topics.find((topic) => topic.slug === task.topicSlug)?.id
+              : undefined,
+            title: task.title,
+            description: task.description,
+            taskType: task.taskType,
+            priority: task.priority,
+            orderIndex: index,
+            plannedMinutes: task.plannedMinutes,
+          })),
+        },
+      },
+      include: {
+        tasks: {
+          include: { topic: { select: { name: true } } },
+          orderBy: { orderIndex: "asc" },
+        },
+      },
+    });
+
+    return {
+      id: plan.id,
+      planDate: toIsoDate(plan.planDate),
+      availableMinutes: plan.availableMinutes,
+      plannedStudyMinutes: plan.plannedStudyMinutes,
+      completedStudyMinutes: plan.completedStudyMinutes,
+      completionRate: plan.completionRate,
+      source: plan.source,
+      summary: plan.summary,
+      tasks: plan.tasks.map((task) => ({
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        status: task.status,
+        priority: task.priority,
+        plannedMinutes: task.plannedMinutes,
+        actualMinutes: task.actualMinutes,
+        topic: task.topic?.name ?? null,
+      })),
+    };
+  },
+
   async getDueRevisions(date) {
     const userId = await getDefaultUserId();
     const rows = await prisma.revision.findMany({
       where: {
         userId,
         status: RevisionStatus.PENDING,
-        dueAt: {
-          lte: new Date(`${date}T23:59:59.999Z`),
-        },
+        dueAt: { lte: dateBounds(date).lte },
       },
       include: {
         problem: {
@@ -612,6 +839,31 @@ export const prismaRepository: TrackerRepository = {
     }));
   },
 
+  async completeRevision(revisionId) {
+    const userId = await getDefaultUserId();
+    const revision = await prisma.revision.findFirst({
+      where: {
+        id: revisionId,
+        userId,
+        status: RevisionStatus.PENDING,
+      },
+      select: { id: true },
+    });
+
+    if (!revision) {
+      return false;
+    }
+
+    await prisma.revision.update({
+      where: { id: revision.id },
+      data: {
+        status: RevisionStatus.COMPLETED,
+        completedAt: new Date(),
+      },
+    });
+    return true;
+  },
+
   async updateDailyTaskStatus(taskId, input) {
     const userId = await getDefaultUserId();
     const task = await prisma.dailyTask.findFirst({
@@ -634,28 +886,50 @@ export const prismaRepository: TrackerRepository = {
       return null;
     }
 
-    const updatedTask = await prisma.dailyTask.update({
-      where: {
-        id: taskId,
-      },
-      data: {
-        status: input.status,
-        actualMinutes:
-          input.status === "COMPLETED"
-            ? task.actualMinutes > 0
-              ? task.actualMinutes
-              : task.plannedMinutes
-            : input.status === "SKIPPED"
+    const actualMinutes =
+      input.status === TaskStatus.COMPLETED
+        ? (input.actualMinutes ?? task.plannedMinutes)
+        : input.status === TaskStatus.PARTIALLY_COMPLETED
+          ? (input.actualMinutes ?? Math.floor(task.plannedMinutes / 2))
+          : 0;
+    if (actualMinutes > task.plannedMinutes) {
+      throw new RangeError("Actual study time cannot exceed planned time.");
+    }
+
+    const updatedTask = await prisma.$transaction(async (transaction) => {
+      const updated = await transaction.dailyTask.update({
+        where: { id: taskId },
+        data: { status: input.status, actualMinutes },
+        include: { topic: { select: { name: true } } },
+      });
+      const tasks = await transaction.dailyTask.findMany({
+        where: { dailyPlanId: task.dailyPlanId },
+        select: { status: true, actualMinutes: true },
+      });
+      const completedMinutes = tasks.reduce(
+        (total, item) => total + item.actualMinutes,
+        0,
+      );
+      const originalPlannedMinutes =
+        await transaction.dailyPlan.findUniqueOrThrow({
+          where: { id: task.dailyPlanId },
+          select: { plannedStudyMinutes: true },
+        });
+      await transaction.dailyPlan.update({
+        where: { id: task.dailyPlanId },
+        data: {
+          completedStudyMinutes: completedMinutes,
+          completionRate:
+            originalPlannedMinutes.plannedStudyMinutes === 0
               ? 0
-              : task.actualMinutes,
-      },
-      include: {
-        topic: {
-          select: {
-            name: true,
-          },
+              : Math.round(
+                  (completedMinutes /
+                    originalPlannedMinutes.plannedStudyMinutes) *
+                    100,
+                ),
         },
-      },
+      });
+      return updated;
     });
 
     return {
